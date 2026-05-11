@@ -7,6 +7,7 @@ import {
   createMatchSchema,
   listMatchesQuerySchema,
 } from '../validation/matches.js';
+import { parse } from 'dotenv';
 
 export const matchesRouter = Router();
 
@@ -16,7 +17,7 @@ matchesRouter.get('/', async (req, res) => {
   const parsed = listMatchesQuerySchema.safeParse(req.query);
 
   if (!parsed.success) {
-    return res.status(400).json({ error: 'Invalid query parameters.', details: JSON.stringify(parsed.error) });
+    return res.status(400).json({ error: 'Invalid query parameters.', details: parsed.error.issues });
   }
 
   const limit = Math.min(parsed.data.limit ?? 50, MAX_LIMIT); // Cap limit to 100
@@ -35,7 +36,7 @@ matchesRouter.post('/', async (req, res) => {
   if (!parsed.success) {
     return res.status(400).json({
       error: 'Invalid payload.',
-      details: JSON.stringify(parsed.error),
+      details: parsed.error.issues,
     });
   }
 
