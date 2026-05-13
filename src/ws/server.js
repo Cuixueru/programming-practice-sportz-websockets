@@ -15,33 +15,58 @@ function broadcast(wss, payload) {
     }
 }
 
+function rejectUpgrade(socket, statusCode, message) {
+    socket.write(
+        `HTTP/1.1 ${statusCode} ${message}\r\n` +
+        'Connection: close\r\n' +
+        'Content-Type: text/plain\r\n' +
+        `Content-Length: ${Buffer.byteLength(message)}\r\n` +
+        '\r\n' +
+        message
+    );
+    socket.destroy();
+}
+
 export function attachWebsocketServer(server) {
     const wss = new WebSocketServer({
-        server, 
-        path: '/ws',
+        noServer: true,
         maxPayload: 1024 * 1024, // 1MB
     });
 
-    wss.on('connection', async (socket, req) => {
+    server.on('upgrade', async (req, socket, head) => {
+        const { pathname } = new URL(req.url, 'http://localhost');
+
+        if (pathname !== '/ws') {
+            rejectUpgrade(socket, 404, 'Not Found');
+            return;
+        }
+
         if (wsArcjet) {
             try {
                 const decision = await wsArcjet.protect(req);
 
-                if (decision.isDenied) {
-                    const code = decision.reason.isRateLimit() ? 1013:1008;
-                    const reason = decision.reason.isRateLimit() ? 'Rate limit exceeded' : 'Access deniedd';
-                    
-                    socket.close(code, reason);
+                if (decision.isDenied()) {
+                    const isRateLimit = decision.reason.isRateLimit();
+                    rejectUpgrade(
+                        socket,
+                        isRateLimit ? 429 : 403,
+                        isRateLimit ? 'Too Many Requests' : 'Forbidden'
+                    );
                     return;
                 }
             } catch (e) {
                 console.error('WS connection error', e);
-                socket.close(1011, 'Server security error');
+                socket.destroy();
                 return;
             }
         }
 
+        wss.handleUpgrade(req, socket, head, (ws) => {
+            wss.emit('connection', ws, req);
+        });
+    });
 
+    wss.on('connection', (socket) => {
         socket.isAlive = true;
         socket.on('pong', () => { socket.isAlive = true; });
 
